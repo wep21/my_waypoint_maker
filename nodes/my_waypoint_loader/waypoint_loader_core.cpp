@@ -69,6 +69,7 @@ void WaypointLoaderNode::createLaneArray(const std::vector<std::string>& paths, 
   }
 }
 
+
 void WaypointLoaderNode::createLaneWaypoint(const std::string& file_path, autoware_msgs::Lane* lane)
 {
   if (!verifyFileConsistency(file_path.c_str()))
@@ -88,10 +89,15 @@ void WaypointLoaderNode::createLaneWaypoint(const std::string& file_path, autowa
   {
     loadWaypointsForVer2(file_path.c_str(), &wps);
   }
-  else
+  else if (format == FileFormat::ver3)
   {
     loadWaypointsForVer3(file_path.c_str(), &wps);
   }
+  else
+  {
+    loadWaypointsForVer4(file_path.c_str(), &wps);
+  }
+
   tf::Transform tf1;
   tf::poseMsgToTF(current_pose_.pose, tf1);
   for (auto& el: wps){
@@ -230,6 +236,60 @@ void WaypointLoaderNode::parseWaypointForVer3(const std::string& line, const std
   wp->wpstate.event_state = (map.find("event_flag") != map.end()) ? std::stoi(map["event_flag"]) : 0;
 }
 
+void WaypointLoaderNode::loadWaypointsForVer4(const char* filename, std::vector<autoware_msgs::Waypoint>* wps)
+{
+  std::ifstream ifs(filename);
+
+  if (!ifs)
+  {
+    return;
+  }
+
+  std::string line;
+  std::getline(ifs, line);  // get first line
+  std::vector<std::string> contents;
+  parseColumns(line, &contents);
+
+  // std::getline(ifs, line);  // remove second line
+  while (std::getline(ifs, line))
+  {
+    autoware_msgs::Waypoint wp;
+    parseWaypointForVer4(line, contents, &wp);
+    wps->emplace_back(wp);
+  }
+
+  size_t last = wps->size() - 1;
+  for (size_t i = 0; i < wps->size(); ++i)
+  {
+    if (i != last)
+    {
+      double yaw = atan2(wps->at(i + 1).pose.pose.position.y - wps->at(i).pose.pose.position.y,
+                         wps->at(i + 1).pose.pose.position.x - wps->at(i).pose.pose.position.x);
+      wps->at(i).pose.pose.orientation = tf::createQuaternionMsgFromYaw(yaw);
+    }
+    else
+    {
+      wps->at(i).pose.pose.orientation = wps->at(i - 1).pose.pose.orientation;
+    }
+  }
+}
+
+void WaypointLoaderNode::parseWaypointForVer4(const std::string& line, const std::vector<std::string>& contents,
+                                              autoware_msgs::Waypoint* wp)
+{
+  std::vector<std::string> columns;
+  parseColumns(line, &columns);
+  std::unordered_map<std::string, std::string> map;
+  for (size_t i = 0; i < contents.size(); i++)
+  {
+    map[contents.at(i)] = columns.at(i);
+  }
+  
+  wp->pose.pose.position.x = std::stod(map["x"]);
+  wp->pose.pose.position.y = std::stod(map["y"]);
+  // wp->pose.pose.orientation = tf::createQuaternionMsgFromYaw(std::stod(map["yaw"]));
+  wp->twist.twist.linear.x = kmph2mps(std::stod(map["v"]));
+}
 FileFormat WaypointLoaderNode::checkFileFormat(const char* filename)
 {
   std::ifstream ifs(filename);
@@ -250,6 +310,7 @@ FileFormat WaypointLoaderNode::checkFileFormat(const char* filename)
   // check if first element in the first column does not include digit
   if (!std::any_of(parsed_columns.at(0).cbegin(), parsed_columns.at(0).cend(), isdigit))
   {
+    if(countColumns(line)==4) return FileFormat::ver4;
     return FileFormat::ver3;
   }
 
@@ -275,7 +336,7 @@ bool WaypointLoaderNode::verifyFileConsistency(const char* filename)
   }
 
   FileFormat format = checkFileFormat(filename);
-  ROS_INFO("format: %d", static_cast<int>(format));
+  ROS_INFO("format: %d", static_cast<int>(format)+1);
   if (format == FileFormat::unknown)
   {
     ROS_ERROR("unknown file format");

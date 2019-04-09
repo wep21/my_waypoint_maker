@@ -38,6 +38,7 @@ enum class FileFormat : int32_t
   ver1,  // x,y,z,(velocity)
   ver2,  // x,y,z,yaw,(velocity)
   ver3,  // first line consists on explanation of values
+  ver4,  // t, x, y, v
 
   unknown = -1,
 };
@@ -92,6 +93,9 @@ private:
   void parseWaypointForVer2(const std::string& line, autoware_msgs::Waypoint* wp);
   void loadWaypointsForVer3(const char* filename, std::vector<autoware_msgs::Waypoint>* wps);
   void parseWaypointForVer3(const std::string& line, const std::vector<std::string>& contents,
+                            autoware_msgs::Waypoint* wp);
+  void loadWaypointsForVer4(const char* filename, std::vector<autoware_msgs::Waypoint>* wps);
+  void parseWaypointForVer4(const std::string& line, const std::vector<std::string>& contents,
                             autoware_msgs::Waypoint* wp);
 };
 
